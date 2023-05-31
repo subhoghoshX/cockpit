@@ -23,7 +23,10 @@ import { DatePicker } from "@patternfly/react-core/dist/esm/components/DatePicke
 import { Flex, FlexItem } from "@patternfly/react-core/dist/esm/layouts/Flex/index.js";
 import { Form, FormGroup } from "@patternfly/react-core/dist/esm/components/Form/index.js";
 import { Popover } from "@patternfly/react-core/dist/esm/components/Popover/index.js";
-import { Select, SelectOption } from "@patternfly/react-core/dist/esm/deprecated/components/Select/index.js";
+// import { Select, SelectOption } from "@patternfly/react-core/dist/esm/deprecated/components/Select/index.js";
+import { Select, SelectOption, SelectList } from "@patternfly/react-core/dist/esm/components/Select/index.js";
+import { TextInputGroup, TextInputGroupMain } from "@patternfly/react-core/dist/esm/components/TextInputGroup/index.js";
+import { MenuToggle } from "@patternfly/react-core/dist/esm/components/MenuToggle/index.js";
 import { Spinner } from "@patternfly/react-core/dist/esm/components/Spinner/index.js";
 import { TimePicker } from "@patternfly/react-core/dist/esm/components/TimePicker/index.js";
 import { TextInput } from "@patternfly/react-core/dist/esm/components/TextInput/index.js";
@@ -511,6 +514,7 @@ function ValidatedInput({ errors, error_key, children }) {
 function ChangeSystimeBody({ state, errors, change }) {
     const [zonesOpen, setZonesOpen] = useState(false);
     const [modeOpen, setModeOpen] = useState(false);
+    const [zonesInput, setZonesInput] = useState("");
 
     const {
         time_zone, time_zones,
@@ -559,37 +563,80 @@ function ChangeSystimeBody({ state, errors, change }) {
     );
 
     const mode_options = [
-        <SelectOption key="manual_time" value="manual_time">{_("Manually")}</SelectOption>,
-        <SelectOption key="ntp_time" value="ntp_time" isDisabled={!ntp_supported}>{_("Automatically using NTP")}</SelectOption>
+        <SelectOption key="manual_time" itemId="manual_time">{_("Manually")}</SelectOption>,
+        <SelectOption key="ntp_time" itemId="ntp_time" isDisabled={!ntp_supported}>{_("Automatically using NTP")}</SelectOption>
     ];
 
     if (custom_ntp.backend)
         mode_options.push(
-            <SelectOption key="ntp_time_custom" value="ntp_time_custom" isDisabled={!ntp_supported}>
+            <SelectOption key="ntp_time_custom" itemId="ntp_time_custom" isDisabled={!ntp_supported}>
                 { custom_ntp.backend == "chronyd"
                     ? _("Automatically using additional NTP servers")
                     : _("Automatically using specific NTP servers")
                 }
             </SelectOption>);
 
+    const zonesToggle = (toggleRef) => (
+        <MenuToggle
+            ref={toggleRef}
+            variant="typeahead"
+            onClick={() => setZonesOpen(isOpen => !isOpen)}
+            isExpanded={zonesOpen}
+            isFullWidth
+        >
+            <TextInputGroup isPlain>
+                <TextInputGroupMain
+                    value={zonesInput}
+                    onClick={() => setZonesOpen(isOpen => !isOpen)}
+                    onChange={(_, value) => setZonesInput(value)}
+                    isExpanded={zonesOpen}
+                    activeItem={time_zone}
+                    role="combobox"
+                />
+            </TextInputGroup>
+        </MenuToggle>
+    );
+
+    const modeToString = {
+        manual_time: _("Manually"),
+        ntp_time: _("Automatically using NTP"),
+        ntp_time_custom: custom_ntp.backend == "chronyd"
+            ? _("Automatically using additional NTP servers")
+            : _("Automatically using specific NTP servers")
+    };
+
+    const changeSystimeToggle = (toggleRef) => (
+        <MenuToggle
+            ref={toggleRef}
+            onClick={() => setModeOpen(isOpen => !isOpen)}
+            isExpanded={modeOpen}
+            isFullWidth
+        >
+            {modeToString[mode]}
+        </MenuToggle>
+    );
+
     return (
         <Form isHorizontal>
             <FormGroup fieldId="systime-timezones" label={_("Time zone")}>
                 <Validated errors={errors} error_key="time_zone">
-                    <Select id="systime-timezones" variant="typeahead"
-                            isOpen={zonesOpen} onToggle={(_, isOpen) => setZonesOpen(isOpen)}
-                            selections={time_zone}
-                            onSelect={(event, value) => { setZonesOpen(false); change("time_zone", value) }}
-                            menuAppendTo="parent">
-                        { time_zones.map(tz => <SelectOption key={tz} value={tz}>{tz.replaceAll("_", " ")}</SelectOption>) }
+                    <Select id="systime-timezones"
+                            isOpen={zonesOpen} onOpenChange={(isOpen) => setZonesOpen(isOpen)}
+                            selected={time_zone}
+                            onSelect={(_, value) => { setZonesOpen(false); change("time_zone", value); setZonesInput(value) }}
+                            toggle={zonesToggle}
+                    >
+                        <SelectList>
+                            { time_zones.map(tz => <SelectOption key={tz} itemId={tz}>{tz.replaceAll("_", " ")}</SelectOption>) }
+                        </SelectList>
                     </Select>
                 </Validated>
             </FormGroup>
             <FormGroup fieldId="change_systime" label={_("Set time")} isStack>
                 <Select id="change_systime"
-                        isOpen={modeOpen} onToggle={(_, isOpen) => setModeOpen(isOpen)}
-                        selections={mode} onSelect={(event, value) => { setModeOpen(false); change("mode", value) }}
-                        menuAppendTo="parent">
+                        isOpen={modeOpen} onOpenChange={(isOpen) => setModeOpen(isOpen)}
+                        selected={mode} onSelect={(_, value) => { setModeOpen(false); change("mode", value) }}
+                        toggle={changeSystimeToggle}>
                     { mode_options }
                 </Select>
                 { mode == "manual_time" &&

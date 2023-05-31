@@ -20,7 +20,8 @@
 import cockpit from "cockpit";
 import React from 'react';
 import { Button } from "@patternfly/react-core/dist/esm/components/Button/index.js";
-import { Select, SelectOption } from "@patternfly/react-core/dist/esm/deprecated/components/Select/index.js";
+import { Select, SelectOption, SelectList } from "@patternfly/react-core/dist/esm/components/Select/index.js";
+import { MenuToggle } from "@patternfly/react-core/dist/esm/components/MenuToggle/index.js";
 import { Modal } from "@patternfly/react-core/dist/esm/components/Modal/index.js";
 import { Alert } from "@patternfly/react-core/dist/esm/components/Alert/index.js";
 import { Flex } from "@patternfly/react-core/dist/esm/layouts/Flex/index.js";
@@ -171,16 +172,38 @@ export class ShutdownModal extends React.Component {
 
     render() {
         const Dialogs = this.context;
+
+        const mapTimeToString = {
+            0: _("No delay"),
+            1: _("1 minute"),
+            5: _("5 minutes"),
+            20: _("20 minutes"),
+            40: _("40 minutes"),
+            60: _("60 minutes"),
+            x: _("Specific time"),
+        };
+
+        const toggle = (toggleRef) => (
+            <MenuToggle
+              ref={toggleRef}
+              onClick={() => this.setState({ isOpen: !this.state.isOpen })}
+              isExpanded={this.state.isOpen}
+              isDisabled={!this.state.formFilled}
+            >
+                {mapTimeToString[this.state.selected]}
+            </MenuToggle>
+        );
+
         const options = [
-            <SelectOption value="0" key="0">{_("No delay")}</SelectOption>,
+            <SelectOption itemId="0" key="0">{_("No delay")}</SelectOption>,
             <Divider key="divider" component="li" />,
-            <SelectOption value="1" key="1">{_("1 minute")}</SelectOption>,
-            <SelectOption value="5" key="5">{_("5 minutes")}</SelectOption>,
-            <SelectOption value="20" key="20">{_("20 minutes")}</SelectOption>,
-            <SelectOption value="40" key="40">{_("40 minutes")}</SelectOption>,
-            <SelectOption value="60" key="60">{_("60 minutes")}</SelectOption>,
+            <SelectOption itemId="1" key="1">{_("1 minute")}</SelectOption>,
+            <SelectOption itemId="5" key="5">{_("5 minutes")}</SelectOption>,
+            <SelectOption itemId="20" key="20">{_("20 minutes")}</SelectOption>,
+            <SelectOption itemId="40" key="40">{_("40 minutes")}</SelectOption>,
+            <SelectOption itemId="60" key="60">{_("60 minutes")}</SelectOption>,
             <Divider key="divider-2" component="li" />,
-            <SelectOption value="x" key="x">{_("Specific time")}</SelectOption>
+            <SelectOption itemId="x" key="x">{_("Specific time")}</SelectOption>
         ];
 
         return (
@@ -200,12 +223,14 @@ export class ShutdownModal extends React.Component {
                         </FormGroup>
                         <FormGroup fieldId="delay" label={_("Delay")}>
                             <Flex className="shutdown-delay-group" alignItems={{ default: 'alignItemsCenter' }}>
-                                <Select toggleId="delay" isOpen={this.state.isOpen} selections={this.state.selected}
-                                        isDisabled={!this.state.formFilled}
+                                <Select id="delay" isOpen={this.state.isOpen} selected={this.state.selected}
+                                        toggle={toggle}
                                         className='shutdown-select-delay'
-                                        onToggle={(_event, o) => this.setState({ isOpen: o })} menuAppendTo="parent"
+                                        onOpenChange={(isOpen) => this.setState({ isOpen })}
                                         onSelect={(e, s) => this.setState({ selected: s, isOpen: false }, this.calculate)}>
-                                    {options}
+                                    <SelectList>
+                                        {options}
+                                    </SelectList>
                                 </Select>
                                 {this.state.selected === "x" && <>
                                     <DatePicker aria-label={_("Pick date")}
