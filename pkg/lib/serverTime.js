@@ -17,7 +17,7 @@
  * along with Cockpit; If not, see <http://www.gnu.org/licenses/>.
  */
 import cockpit from "cockpit";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@patternfly/react-core/dist/esm/components/Button/index.js";
 import { DatePicker } from "@patternfly/react-core/dist/esm/components/DatePicker/index.js";
 import { Flex, FlexItem } from "@patternfly/react-core/dist/esm/layouts/Flex/index.js";
@@ -514,7 +514,6 @@ function ValidatedInput({ errors, error_key, children }) {
 function ChangeSystimeBody({ state, errors, change }) {
     const [zonesOpen, setZonesOpen] = useState(false);
     const [modeOpen, setModeOpen] = useState(false);
-    const [zonesInput, setZonesInput] = useState("");
 
     const {
         time_zone, time_zones,
@@ -522,6 +521,28 @@ function ChangeSystimeBody({ state, errors, change }) {
         manual_date, manual_time,
         ntp_supported, custom_ntp
     } = state;
+
+    const [zonesInputValue, setZonesInputValue] = useState(time_zone);
+    const [selectOptions, setSelectOptions] = useState(time_zones);
+    const [filterValue, setFilterValue] = useState("");
+
+    useEffect(() => {
+        let newSelectOptions = time_zones;
+
+        if (filterValue) {
+            newSelectOptions = time_zones.filter((item) => item.toLowerCase().includes(filterValue.toLowerCase()));
+
+            if (newSelectOptions.length === 0) {
+                newSelectOptions = [`No results found for ${filterValue}`];
+            }
+
+            if (!zonesOpen) {
+                setZonesOpen(true);
+            }
+        }
+
+        setSelectOptions(newSelectOptions);
+    }, [filterValue, time_zones]);
 
     function add_server(event, index) {
         custom_ntp.servers.splice(index + 1, 0, "");
@@ -586,11 +607,13 @@ function ChangeSystimeBody({ state, errors, change }) {
         >
             <TextInputGroup isPlain>
                 <TextInputGroupMain
-                    value={zonesInput}
+                    value={zonesInputValue}
                     onClick={() => setZonesOpen(isOpen => !isOpen)}
-                    onChange={(_, value) => setZonesInput(value)}
+                    onChange={(_, value) => {
+                        setZonesInputValue(value);
+                        setFilterValue(value);
+                    }}
                     isExpanded={zonesOpen}
-                    activeItem={time_zone}
                     role="combobox"
                 />
             </TextInputGroup>
@@ -621,13 +644,19 @@ function ChangeSystimeBody({ state, errors, change }) {
             <FormGroup fieldId="systime-timezones" label={_("Time zone")}>
                 <Validated errors={errors} error_key="time_zone">
                     <Select id="systime-timezones"
-                            isOpen={zonesOpen} onOpenChange={(isOpen) => setZonesOpen(isOpen)}
+                            isOpen={zonesOpen} onOpenChange={(isOpen) => {
+                                setZonesOpen(isOpen);
+                                if (!isOpen) {
+                                    setZonesInputValue(time_zone);
+                                    setFilterValue("");
+                                }
+                            }}
                             selected={time_zone}
-                            onSelect={(_, value) => { setZonesOpen(false); change("time_zone", value); setZonesInput(value) }}
+                            onSelect={(_, value) => { setZonesOpen(false); change("time_zone", value); setZonesInputValue(value.replaceAll("_", " ")) }}
                             toggle={zonesToggle}
                     >
                         <SelectList>
-                            { time_zones.map(tz => <SelectOption key={tz} itemId={tz}>{tz.replaceAll("_", " ")}</SelectOption>) }
+                            { selectOptions.map(tz => <SelectOption key={tz} itemId={tz} isDisabled={tz.includes('No results')}>{tz.replaceAll("_", " ")}</SelectOption>) }
                         </SelectList>
                     </Select>
                 </Validated>
