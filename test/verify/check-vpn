@@ -1,0 +1,66 @@
+#!/usr/bin/python3 -cimport os, sys; os.execv(os.path.dirname(sys.argv[1]) + "/../common/pywrap", sys.argv)
+
+from testlib import MachineCase, test_main, sit
+import configparser
+import io
+
+class TestVPNPlayground(MachineCase):
+    provision = {
+            "machine1": {"address": "192.168.100.11/24", "restrict": False},
+            "machine2": {"address": "192.168.100.12/24", "restrict": False},
+    }
+
+    def testVPN(self):
+        m = self.machine
+        m1 = self.machines["machine1"]
+        m2 = self.machines["machine2"]
+
+        m1.execute("wg genkey > private")
+        m1.execute("ip link add dev wg0 type wireguard")
+        m1.execute("ip addr add 10.0.0.1/24 dev wg0")
+        m1.execute("wg set wg0 private-key ./private")
+        m1.execute("ip link set wg0 up")
+        m1.execute("systemctl stop firewalld") # TODO: Fix it
+        m1_pubkey = m1.execute("wg pubkey < private").strip()
+        m1_wg0_config = convertToDict(m1.execute("wg showconf wg0"))
+        m1_port = m1_wg0_config["Interface"]["listenport"]
+
+        m2.execute("wg genkey > private")
+        m2.execute("ip link add dev wg0 type wireguard")
+        m2.execute("ip addr add 10.0.0.2/24 dev wg0")
+        m2.execute("wg set wg0 private-key ./private")
+        m2.execute("ip link set wg0 up")
+        m2.execute("systemctl stop firewalld") # TODO: Fix it
+        m2_pubkey = m2.execute("wg pubkey < private").strip()
+        m2_wg0_config = convertToDict(m2.execute("wg showconf wg0"))
+        m2_port = m2_wg0_config["Interface"]["listenport"]
+
+        # add peers
+        m1.execute(f"wg set wg0 peer {m2_pubkey} allowed-ips 10.0.0.2/32 endpoint 192.168.100.12:{m2_port}")
+        m2.execute(f"wg set wg0 peer {m1_pubkey} allowed-ips 10.0.0.1/32 endpoint 192.168.100.11:{m1_port}")
+
+        # m1.execute(f"wg set wg0 listen-port 51820 private-key /root/private peer {m2_pubkey} allowed-ips 10.0.0.2/32 endpoint 192.168.100.12:51820")
+        # m2.execute(f"wg set wg0 listen-port 51820 private-key /root/private peer {m1_pubkey} allowed-ips 10.0.0.1/32 endpoint 192.168.100.11:51820")
+
+        result = m1.execute("ping -c 1 10.0.0.2")
+
+        if("64 bytes from" not in result):
+            raise
+
+# INI -> Python Dictionary
+def convertToDict(string_config):
+    buf = io.StringIO(string_config)
+    config_object = configparser.ConfigParser()
+    config_object.read_file(buf)
+
+    output_dic = dict()
+    sections = config_object.sections()
+    for section in sections:
+        items = config_object.items(section)
+        output_dic[section] = dict(items)
+
+    return output_dic
+
+
+if __name__ == "__main__":
+    test_main()
