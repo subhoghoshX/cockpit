@@ -38,16 +38,12 @@ class TestVPNPlayground(MachineCase):
         m1.execute(f"echo [wireguard-peer.{m2_pubkey}] >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
         m1.execute(f"echo endpoint=192.168.100.12:{m2_port} >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
         m1.execute(f"echo allowed-ips=10.0.0.2 >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
+        m1.execute("systemctl restart NetworkManager")
         m1.execute("nmcli connection up connection-wg0")
 
         m2.execute(f"wg set wg0 peer {m1_pubkey} allowed-ips 10.0.0.1/32") # endpoint and port is not necessary for a peer if that peer estalishes the connectio first (i.e. the client)
 
-        result = m1.execute("ping -c 1 10.0.0.2")
-
-        if("64 bytes from" not in result):
-            raise
-
-        sit()
+        m1.execute("ping -c 1 10.0.0.2")
 
 # INI -> Python Dictionary
 def convertToDict(string_config):
