@@ -1,13 +1,15 @@
 #!/usr/bin/python3 -cimport os, sys; os.execv(os.path.dirname(sys.argv[1]) + "/../common/pywrap", sys.argv)
 
-from testlib import MachineCase, test_main, sit
-import configparser
-import io
+import subprocess
+import sys
 
-class TestVPNPlayground(MachineCase):
+import testlib
+
+
+class TestVPNPlayground(testlib.MachineCase):
     provision = {
-            "machine1": {"address": "192.168.100.11/24", "restrict": False},
-            "machine2": {"address": "192.168.100.12/24", "restrict": False},
+        "machine1": {"address": "192.168.100.11/24", "restrict": False},
+        "machine2": {"address": "192.168.100.12/24", "restrict": False},
     }
 
     def testVPN(self):
@@ -16,49 +18,61 @@ class TestVPNPlayground(MachineCase):
         m2 = self.machines["machine2"]
 
         m1.execute("wg genkey > private")
-        m1.execute("systemctl stop firewalld") # TODO: Fix it
-        m1.execute("nmcli connection add type wireguard con-name connection-wg0 ifname wg0 autoconnect no")
-        m1.execute("nmcli connection modify connection-wg0 ipv4.method manual ipv4.addresses 10.0.0.1/24")
         private_key = m.execute("cat private").strip()
-        m1.execute(f"nmcli connection modify connection-wg0 wireguard.private-key '{private_key}'")
-        m1_port = 51820
-        m1.execute(f"nmcli connection modify connection-wg0 wireguard.listen-port {m1_port}")
         m1_pubkey = m1.execute("wg pubkey < private").strip()
+        m1_port = 51820
+        m1_ip4 = "10.0.0.1"
+        m1_ip6 = "2001::1"
+        m1.execute("nmcli connection add type wireguard con-name connection-wg0 ifname wg0 autoconnect no")
+        m1.execute(f"nmcli connection modify connection-wg0 ipv4.method manual ipv4.addresses {m1_ip4}/24")
+        m1.execute(f"nmcli connection modify connection-wg0 wireguard.private-key '{private_key}'")
+        m1.execute(f"nmcli connection modify connection-wg0 wireguard.listen-port {m1_port}")
 
         m2.execute("wg genkey > private")
-        m2.execute("ip link add dev wg0 type wireguard")
-        m2.execute("ip addr add 10.0.0.2/24 dev wg0")
-        m2.execute("wg set wg0 private-key ./private")
-        m2.execute("ip link set wg0 up")
-        m2.execute("systemctl stop firewalld") # TODO: Fix it
         m2_pubkey = m2.execute("wg pubkey < private").strip()
-        m2_wg0_config = convertToDict(m2.execute("wg showconf wg0"))
-        m2_port = m2_wg0_config["Interface"]["listenport"]
+        m2_port = 51820
+        m2_ip4 = "10.0.0.2"
+        m2_ip6 = "2001::2"
+        m2.execute("ip link add dev wg0 type wireguard")
+        m2.execute(f"ip addr add {m2_ip4}/24 dev wg0")
+        m2.execute("wg set wg0 private-key ./private")
+        m2.execute(f"wg set wg0 listen-port {m2_port}")
+        m2.execute("ip link set wg0 up")
+        m2.execute("systemctl stop firewalld")
 
         m1.execute(f"echo [wireguard-peer.{m2_pubkey}] >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
         m1.execute(f"echo endpoint=192.168.100.12:{m2_port} >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
-        m1.execute(f"echo allowed-ips=10.0.0.2 >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
+        m1.execute(f"echo allowed-ips={m2_ip4} >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
         m1.execute("systemctl restart NetworkManager")
         m1.execute("nmcli connection up connection-wg0")
 
-        m2.execute(f"wg set wg0 peer {m1_pubkey} allowed-ips 10.0.0.1/32") # endpoint and port is not necessary for a peer if that peer estalishes the connectio first (i.e. the client)
+        # endpoint and port is not necessary for a peer if that peer estalishes the connection first (i.e. the client)
+        m2.execute(f"wg set wg0 peer {m1_pubkey} allowed-ips {m1_ip4}/32")
 
-        m1.execute("ping -c 1 10.0.0.2")
+        try:
+            m1.execute(f"ping -c 1 {m2_ip4}")
+        except (subprocess.CalledProcessError, testlib.Error):
+            print("-------- status on m1 ----------", file=sys.stderr)
+            m1.execute("set -x; ip a >&2; ip route >&2; nmcli c >&2; nmcli c show con-wg0 >&2; nmcli d show wg0 >&2; wg >&2")
+            print("-------- status on m2 ----------", file=sys.stderr)
+            m2.execute("set -x; ip a >&2; ip route >&2; nmcli c >&2; wg >&2")
 
-# INI -> Python Dictionary
-def convertToDict(string_config):
-    buf = io.StringIO(string_config)
-    config_object = configparser.ConfigParser()
-    config_object.read_file(buf)
+        # connection over ipv6
+        m1.execute(f"nmcli connection modify connection-wg0 ipv4.method manual ipv4.addresses {m1_ip4}/24 ipv6.method manual ipv6.addresses {m2_ip6}/64")
+        m1.execute(f"echo allowed-ips={m2_ip6} >> /etc/NetworkManager/system-connections/connection-wg0.nmconnection")
+        m1.execute("nmcli connection reload connection-wg0")
+        m1.execute("nmcli connection up connection-wg0")
 
-    output_dic = dict()
-    sections = config_object.sections()
-    for section in sections:
-        items = config_object.items(section)
-        output_dic[section] = dict(items)
+        m2.execute(f"wg set wg0 peer {m1_pubkey} allowed-ips {m1_ip4}/32,{m1_ip6}")
 
-    return output_dic
+        try:
+            m1.execute(f"ping -6 -c 5 {m2_ip6}")
+        except (subprocess.CalledProcessError, testlib.Error):
+            print("-------- status on m1 ----------", file=sys.stderr)
+            m1.execute("set -x; ip a >&2; ip -6 route >&2; nmcli c >&2; nmcli c show con-wg0 >&2; nmcli d show wg0 >&2; wg >&2")
+            print("-------- status on m2 ----------", file=sys.stderr)
+            m2.execute("set -x; ip a >&2; ip -6 route >&2; nmcli c >&2; wg >&2")
 
 
 if __name__ == "__main__":
-    test_main()
+    testlib.test_main()
