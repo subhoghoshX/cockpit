@@ -19,44 +19,44 @@ class TestOpenVPNPlayground(testlib.MachineCase):
 
         # increasing productivity
         keys_dir = "/usr/share/doc/openvpn/examples/sample-keys"
+        m1.execute("touch .hushlogin")
+        m2.execute("touch .hushlogin")
 
         # SERVER
         server_conf = """ "
-remote 192.168.100.11
-dev tun1
-ifconfig 10.4.0.2 10.4.0.1
-tls-server
-
-dh /usr/share/doc/openvpn/examples/sample-keys/dh2048.pem
+port 1194
+proto udp
+dev tun
 
 ca /usr/share/doc/openvpn/examples/sample-keys/ca.crt
-
 cert /usr/share/doc/openvpn/examples/sample-keys/server.crt
-
 key /usr/share/doc/openvpn/examples/sample-keys/server.key
+dh /usr/share/doc/openvpn/examples/sample-keys/dh2048.pem
+
+server 10.8.0.0 255.255.255.0
+tls-server
+
+keepalive 10 120
+data-ciphers-fallback AES-256-CBC
+
+persist-key
+persist-tun
         " """
         m2.execute(f"echo {server_conf} >> /etc/openvpn/server.conf")
         m2.execute("systemctl enable --now openvpn@server")
+        m2.execute("firewall-cmd --add-port=1194/udp")
 
         # create .ovpn file for client
         ovpn_conf = """ "# start
 client
 dev tun
+proto udp
 remote 192.168.100.12 1194 udp
-remote 192.168.100.12 443 tcp
-
-data-ciphers-fallback BF-CBC # this was needed to make the client directive work
-
-remote-cert-tls server
-# cipher AES-256-CBC
-# auth SHA256
-# -> ping fails with the above two
+resolv-retry infinite
+persist-key
 persist-tun
-socket-flags TCP_NODELAY
-push-peer-info
-
-ifconfig 10.4.0.1 10.4.0.2
-tls-client
+remote-cert-tls server
+data-ciphers-fallback AES-256-CBC
         " """
         m2.execute(f"echo {ovpn_conf} >> {keys_dir}/test.ovpn")
         m2.execute(f"echo '<ca>' >> {keys_dir}/test.ovpn")
@@ -78,7 +78,7 @@ tls-client
         m1.execute(f"scp -o StrictHostKeyChecking=accept-new 192.168.100.12:{keys_dir}/test.ovpn .")
 
         m1.spawn("openvpn test.ovpn", "openvpn_log")
-        m1.execute("sleep 10; ping -c 1 10.4.0.2")
+        m1.execute("sleep 10; ping -c 1 10.8.0.1")
 
 if __name__ == "__main__":
     testlib.test_main()
