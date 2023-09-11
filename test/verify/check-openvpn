@@ -18,7 +18,7 @@ class TestOpenVPNPlayground(testlib.MachineCase):
         m2 = self.machines["machine2"]
 
         # increasing productivity
-        keys_dir = "/etc/openvpn"
+        keys_dir = "/etc/openvpn/server"
         m1.execute("touch .hushlogin")
         m2.execute("touch .hushlogin")
 
@@ -27,7 +27,7 @@ class TestOpenVPNPlayground(testlib.MachineCase):
         ###############################################################
         m2.execute("openssl genrsa -out ca.key")
         m2.execute("openssl req -x509 -new -sha512 -nodes -key ca.key -days 7307 -out ca.crt -subj '/C=XX/ST=StateName/L=CityName/O=CompanyName/OU=CompanySectionName/CN=CommonNameOrHostname'")
-        m2.execute("openssl dhparam -out /etc/openvpn/dh2048.pem 2048")
+        m2.execute(f"openssl dhparam -out {keys_dir}/dh2048.pem 2048")
         m2.execute("openssl genrsa -out server.key")
         host_conf = """ "
 [req]
@@ -72,23 +72,18 @@ DNS.2 = *.testing.com
         m2.execute("openssl genrsa -out client.key")
         m2.execute("openssl req -new -sha512 -nodes -key client.key -out client.csr -config host.conf")
         m2.execute("openssl x509 -req -sha512 -days 3650 -CA ca.crt -CAkey ca.key -in client.csr -set_serial 01 -out client.crt")
-        m2.execute("mv -t /etc/openvpn/ ca.key ca.crt server.key server.crt client.key client.crt")
+        m2.execute(f"mv -t {keys_dir} ca.key ca.crt server.key server.crt client.key client.crt")
         server_conf = """ "
 port 1194
 proto udp
 dev tun
 
-# ca /usr/share/doc/openvpn/examples/sample-keys/ca.crt
 ca ca.crt
-# cert /usr/share/doc/openvpn/examples/sample-keys/server.crt
 cert server.crt
-# key /usr/share/doc/openvpn/examples/sample-keys/server.key
 key server.key
-# dh /usr/share/doc/openvpn/examples/sample-keys/dh2048.pem
 dh dh2048.pem
 
 server 10.8.0.0 255.255.255.0
-tls-server
 
 keepalive 10 120
 data-ciphers-fallback AES-256-CBC
@@ -96,8 +91,11 @@ data-ciphers-fallback AES-256-CBC
 persist-key
 persist-tun
         " """
-        m2.execute(f"echo {server_conf} >> /etc/openvpn/server.conf")
-        m2.execute("systemctl enable --now openvpn@server")
+        m2.execute(f"echo {server_conf} >> {keys_dir}/server.conf")
+        if 'fedora' in m2.image:
+            # TODO: in fedora systemd starting openvpn leads to permission errors
+            m2.execute("setenforce 0")
+        m2.execute("systemctl enable --now openvpn-server@server")
         m2.execute("firewall-cmd --add-port=1194/udp")
 
         # create .ovpn file for client
@@ -136,9 +134,11 @@ data-ciphers-fallback AES-256-CBC
         m1.execute(f"scp -o StrictHostKeyChecking=accept-new 192.168.100.12:{keys_dir}/test.ovpn .")
 
         m1.spawn("openvpn test.ovpn", "openvpn_log")
-        m1.execute("sleep 10; ping -c 1 10.8.0.1")
+        # FIX: the client also doesn't work when selinux is enforcing
+        m1.execute("setenforce 0")
         # m1.execute("nmcli connection import type openvpn file test.ovpn")
         # m1.execute("nmcli connection up test")
+        m1.execute("sleep 10; ping -c 1 10.8.0.1")
         # testlib.sit()
 
 if __name__ == "__main__":
