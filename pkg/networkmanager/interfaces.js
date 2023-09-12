@@ -735,6 +735,9 @@ export function NetworkManagerModel() {
             }));
         } else {
             delete result.wireguard;
+        if (settings.vpn) {
+            console.log("openvpn?", settings.vpn);
+            set("wireguard", "private-key", "s", "string");
         }
 
         return result;
